@@ -1,32 +1,48 @@
 import hashlib
-import pickle
-import random
+import os
+import secrets
 import sqlite3
 import subprocess
+from typing import Any, Tuple
 import requests
 import yaml
 
-DB_PASSWORD = "SuperSecret123!"  # РїР°СЂРѕР»СЊ РІ РєРѕРґРµ
+DB_PASSWORD: str = os.environ["DB_PASSWORD"]
 
-def get_user(username):
+
+def get_user(username: str) -> list[Any]:
+    """Получение пользователя из БД с использованием параметризованного запроса."""
     conn = sqlite3.connect("app.db")
-    query = f"SELECT * FROM users WHERE name = '{username}'"  # SQL-РёРЅСЉРµРєС†РёСЏ
-    return conn.execute(query).fetchall()
+    try:
+        return conn.execute(
+            "SELECT * FROM users WHERE name = ?", (username,)
+        ).fetchall()
+    finally:
+        conn.close()
 
-def ping(host):
-    return subprocess.run("ping -c 1 " + host, shell=True)  # РєРѕРјР°РЅРґРЅР°СЏ РёРЅСЉРµРєС†РёСЏ
 
-def hash_password(password):
-    return hashlib.md5(password.encode()).hexdigest()  # СЃР»Р°Р±С‹Р№ С…РµС€
+def ping(host: str) -> subprocess.CompletedProcess[bytes]:
+    """Безопасный вызов ping без shell и с передачей аргументов списком."""
+    return subprocess.run(["ping", "-c", "1", host], check=False)
 
-def make_reset_token():
-    return str(random.random())  # РїСЂРµРґСЃРєР°Р·СѓРµРјС‹Р№ С‚РѕРєРµРЅ
 
-def load_config(text):
-    return yaml.load(text, Loader=yaml.Loader)  # РЅРµР±РµР·РѕРїР°СЃРЅР°СЏ Р·Р°РіСЂСѓР·РєР° YAML
+def hash_password(password: str, salt: bytes | None = None) -> Tuple[bytes, bytes]:
+    """Хэширование пароля с использованием scrypt."""
+    salt = salt or os.urandom(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    return salt, digest
 
-def load_session(data):
-    return pickle.loads(data)  # РЅРµР±РµР·РѕРїР°СЃРЅР°СЏ РґРµСЃРµСЂРёР°Р»РёР·Р°С†РёСЏ
 
-def fetch(url):
-    return requests.get(url, verify=False)
+def make_reset_token() -> str:
+    """Генерация криптостойкого токена для сброса."""
+    return secrets.token_urlsafe(32)
+
+
+def load_config(text: str) -> Any:
+    """Безопасная загрузка конфигурации YAML."""
+    return yaml.safe_load(text)
+
+
+def fetch(url: str) -> requests.Response:
+    """Запрос по URL с установленным таймаутом."""
+    return requests.get(url, timeout=10)
